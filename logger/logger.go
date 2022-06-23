@@ -49,7 +49,7 @@ type Interface interface {
 
 var (
 	Default = New(Formatter(os.Stdout), Config{
-		SlowThreshold: 1 * time.Second,
+		SlowThreshold: 5 * time.Second,
 		LogLevel:      Warn,
 	})
 
