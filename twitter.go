@@ -300,7 +300,9 @@ func (c *TwitterScraper) iteratorApiData(ctx context.Context, endpoint string, p
 				var entryCursorStop bool
 				if apiType == APIStandart {
 					entryCursor = entry.M("content").M("operation").M("cursor").M("value").String()
-					entryCursorStop = entry.M("content").M("operation").M("cursor").M("stopOnEmptyResponse").Bool()
+					if _, ok := entry.M("content").M("operation").M("cursor").Exists("stopOnEmptyResponse"); ok {
+						entryCursorStop = entry.M("content").M("operation").M("cursor").M("stopOnEmptyResponse").Bool()
+					}
 				} else if apiType == APIGraphql {
 					cursorContent := entry.M("content").MapInterface()
 					var itemType string
@@ -470,13 +472,13 @@ func (c *TwitterScraper) params(query string) (string, url.Values) {
 	switch c.config.Lang {
 	case LangID:
 		query = fmt.Sprintf("%s lang:%s", query, "id")
-		paginationParams.Add("lang", "id")
 	case LangEn:
-		paginationParams.Add("lang", "en")
 		query = fmt.Sprintf("%s lang:%s", query, "en")
 	}
 	if c.config.Date.Since != "" && c.config.Date.Until != "" {
-		query += fmt.Sprintf(" until:%s since:%s ", c.config.Date.Until, c.config.Date.Since)
+		spSince := strings.Split(c.config.Date.Since, " ")
+		spUntil := strings.Split(c.config.Date.Until, " ")
+		query += fmt.Sprintf(" until:%s since:%s ", spUntil[0], spSince[0])
 	}
 	return query, paginationParams
 }
