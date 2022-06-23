@@ -374,35 +374,23 @@ func (c *TwitterScraper) TweetSearch(ctx context.Context, query string, maxTweet
 	c.query = query
 	query, paginationParams := c.params(query)
 	paginationParams.Add("q", query)
-	//paginationParams.Add("f", "top")
-	paginationParams.Add("include_profile_interstitial_type", "1")
-	paginationParams.Add("include_blocking", "1")
-	paginationParams.Add("include_blocked_by", "1")
-	paginationParams.Add("include_followed_by", "1")
-	paginationParams.Add("include_want_retweets", "1")
-	paginationParams.Add("include_mute_edge", "1")
-	paginationParams.Add("include_can_dm", "1")
-	paginationParams.Add("include_can_media_tag", "1")
-	paginationParams.Add("skip_status", "1")
-	paginationParams.Add("cards_platform", "Web-12")
-	paginationParams.Add("include_cards", "1")
-	paginationParams.Add("include_ext_alt_text", "true")
-	paginationParams.Add("include_quote_count", "true")
-	paginationParams.Add("include_reply_count", "1")
-	paginationParams.Add("tweet_mode", "extended")
-	paginationParams.Add("include_entities", "true")
-	paginationParams.Add("include_user_entities", "true")
-	paginationParams.Add("include_ext_media_color", "true")
-	paginationParams.Add("include_ext_media_availability", "true")
-	paginationParams.Add("send_error_codes", "true")
-	paginationParams.Add("simple_quoted_tweets", "true")
-	paginationParams.Add("tweet_search_mode", "live")
-	paginationParams.Add("count", "100")
-	paginationParams.Add("query_source", "spelling_expansion_revert_click")
-	paginationParams.Add("cursor", "")
-	paginationParams.Add("pc", "1")
-	paginationParams.Add("spelling_corrections", "1")
-	paginationParams.Add("ext", "mediaStats,highlightedLabel")
+	paginationParams.Add("f", "top")
+
+	// copy value
+	params := paginationParams
+	params.Del("cursor")
+
+	go c.iteratorApiData(ctx, TwitterAPISearch+"?", params, paginationParams, "", maxTweets, APIStandart, channel, parseTimeline)
+	return channel
+}
+
+func (c *TwitterScraper) TweetHastag(ctx context.Context, hashtag string, maxTweets int) <-chan *TweetResult {
+	channel := make(chan *TweetResult)
+
+	c.query = hashtag
+	query, paginationParams := c.params(hashtag)
+	paginationParams.Add("q", "#"+query)
+	paginationParams.Add("f", "top")
 
 	// copy value
 	params := paginationParams
@@ -458,11 +446,6 @@ func (c *TwitterScraper) TweetUser(ctx context.Context, username string, maxTwee
 	variables := paginationVariables
 	variables.Del("cursor")
 
-	//paginationParams.Add("screen_name", username)
-	//paginationParams.Add("withSafetyModeUserFields", "true")
-	//paginationParams.Add("withSuperFollowsUserFields", "true")
-	//paramsStr = "variables=%7B%22screen_name%22%3A%22" + username + "%22%2C%22withSafetyModeUserFields%22%3Atrue%2C%22withSuperFollowsUserFields%22%3Atrue%7D"
-
 	go c.iteratorApiData(ctx, TwitterAPIUserTweets+"?", variables, paginationVariables, "", maxTweets, APIGraphql, channel, parseTimelineV2)
 	return channel
 }
@@ -480,5 +463,34 @@ func (c *TwitterScraper) params(query string) (string, url.Values) {
 		spUntil := strings.Split(c.config.Date.Until, " ")
 		query += fmt.Sprintf(" until:%s since:%s ", spUntil[0], spSince[0])
 	}
+	paginationParams.Add("include_profile_interstitial_type", "1")
+	paginationParams.Add("include_blocking", "1")
+	paginationParams.Add("include_blocked_by", "1")
+	paginationParams.Add("include_followed_by", "1")
+	paginationParams.Add("include_want_retweets", "1")
+	paginationParams.Add("include_mute_edge", "1")
+	paginationParams.Add("include_can_dm", "1")
+	paginationParams.Add("include_can_media_tag", "1")
+	paginationParams.Add("skip_status", "1")
+	paginationParams.Add("cards_platform", "Web-12")
+	paginationParams.Add("include_cards", "1")
+	paginationParams.Add("include_ext_alt_text", "true")
+	paginationParams.Add("include_quote_count", "true")
+	paginationParams.Add("include_reply_count", "1")
+	paginationParams.Add("tweet_mode", "extended")
+	paginationParams.Add("include_entities", "true")
+	paginationParams.Add("include_user_entities", "true")
+	paginationParams.Add("include_ext_media_color", "true")
+	paginationParams.Add("include_ext_media_availability", "true")
+	paginationParams.Add("send_error_codes", "true")
+	paginationParams.Add("simple_quoted_tweets", "true")
+	paginationParams.Add("tweet_search_mode", "live")
+	paginationParams.Add("count", "100")
+	paginationParams.Add("query_source", "spelling_expansion_revert_click")
+	paginationParams.Add("cursor", "")
+	paginationParams.Add("pc", "1")
+	paginationParams.Add("spelling_corrections", "1")
+	paginationParams.Add("ext", "mediaStats,highlightedLabel")
+
 	return query, paginationParams
 }
