@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -16,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hinha/go-social-network/logger"
 	"github.com/hinha/go-social-network/utils"
 )
 
@@ -48,7 +48,9 @@ const (
 	APIGraphql  VersionAPI = "GRAPHQL.v2"
 )
 
-var wg sync.WaitGroup
+var (
+	wg sync.WaitGroup
+)
 
 type TwitterScraper struct {
 	scraper    *Scraper
@@ -61,7 +63,16 @@ type TwitterScraper struct {
 }
 
 func NewTwitterScraper(conf *Config) *TwitterScraper {
-	s := &TwitterScraper{scraper: newScraper(conf)}
+	s := &TwitterScraper{}
+
+	if conf != nil {
+		if conf.Logger == nil {
+			conf.Logger = logger.Default
+		}
+		conf.Logger.SetField("media", "twitter")
+		s.scraper = newScraper(conf)
+		s.config = conf
+	}
 
 	rand.Seed(time.Now().UnixNano())
 	header := http.Header{}
@@ -71,7 +82,6 @@ func NewTwitterScraper(conf *Config) *TwitterScraper {
 	s.randomUserAgent()
 	s.tokenManager = utils.TokenManager()
 
-	s.config = conf
 	return s
 }
 
@@ -81,16 +91,18 @@ func (c *TwitterScraper) randomUserAgent() {
 }
 
 func (c *TwitterScraper) ensureGuestToken(baseUrl string) error {
+	beginAt := time.Now()
+
 	header := http.Header{}
 	if c.tokenManager.Token == "" {
-		log.Println("Retrieving guest token") // info
 		header.Add("User-Agent", c.apiHeaders.Get("User-Agent"))
 		r, err := c.scraper.RequestGET(baseUrl, "", header, c.CheckTokenResponse)
 		if err != nil {
-			log.Printf("[ERROR] %v", err) // debug
+			c.config.Logger.Error(beginAt, err)
 			return err
 		}
 		defer r.Body.Close()
+		c.config.Logger.SetField("subject", "token")
 
 		resp, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -100,19 +112,19 @@ func (c *TwitterScraper) ensureGuestToken(baseUrl string) error {
 		full, _ := regexp.Compile(`document\.cookie = decodeURIComponent\("gt=(\d+); Max-Age=10800; Domain=\.twitter\.com; Path=/; Secure"\);`)
 		match := full.FindStringSubmatch(string(resp))
 		if len(match) > 1 {
-			log.Println("Found guest token in HTML") // debug
+			c.config.Logger.Debug(beginAt, "Found guest token in HTML")
 			c.tokenManager.SetToken(match[1])
 		}
 		for _, cookie := range r.Cookies() {
-			log.Println("Found guest token in cookies") // debug
+			c.config.Logger.Debug(beginAt, "Found guest token in cookies")
 			if cookie.Name == "gt" {
 				c.tokenManager.SetToken(cookie.Value)
 				break
 			}
 		}
 		if c.tokenManager.Token == "" {
-			log.Println("No guest token in response") // debug
-			log.Println("Retrieving guest token via API")
+			c.config.Logger.Debug(beginAt, "No guest token in response")
+			c.config.Logger.Info(beginAt, "Retrieving guest token via API")
 			r, err := c.scraper.RequestPOST(TwitterAPIToken, "", bytes.NewReader([]byte("")), c.apiHeaders, c.CheckTokenResponse)
 			if err != nil {
 				return err
@@ -128,7 +140,7 @@ func (c *TwitterScraper) ensureGuestToken(baseUrl string) error {
 				c.tokenManager.SetToken(val.(string))
 			}
 		}
-		log.Println("Using guest token", c.tokenManager.Token) // debug
+		c.config.Logger.Debug(beginAt, "Using guest token ", c.tokenManager.Token)
 	}
 	cookie := make([]*http.Cookie, 0)
 	cookie = append(cookie, &http.Cookie{
@@ -185,6 +197,7 @@ func (c *TwitterScraper) get_api_data(endpoint string, params url.Values, apiTyp
 }
 
 func (c *TwitterScraper) iteratorApiData(ctx context.Context, endpoint string, params url.Values, paginationParams url.Values, cursor string, maxTweet int, apiType VersionAPI, channel chan *TweetResult, fn parseTweets) {
+	beginAt := time.Now()
 	defer close(channel)
 
 	var reqParams url.Values
@@ -201,10 +214,9 @@ func (c *TwitterScraper) iteratorApiData(ctx context.Context, endpoint string, p
 	var tweetNum int
 
 	for {
-		log.Println("Retrieving scroll page", cursor)
+		c.config.Logger.Info(beginAt, "Retrieving scroll page ", cursor)
 		obj, err := c.get_api_data(endpoint, reqParams, apiType)
 		if err != nil {
-			log.Printf("ERROR: %v", err)
 			channel <- &TweetResult{Error: err}
 			return
 		}
@@ -309,7 +321,7 @@ func (c *TwitterScraper) iteratorApiData(ctx context.Context, endpoint string, p
 					}
 
 					if entryCursor == "" {
-						log.Println("DEBUG: empty entry cursor") // debug
+						c.config.Logger.Debug(beginAt, "emtpty cursor")
 					}
 				}
 
