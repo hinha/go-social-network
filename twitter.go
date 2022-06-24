@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hinha/go-social-network/entities"
 	"github.com/hinha/go-social-network/logger"
 	"github.com/hinha/go-social-network/utils"
 )
@@ -23,6 +23,7 @@ const (
 	ApiAuthorizationHeader   = "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 	TwitterAPIToken          = "https://api.twitter.com/1.1/guest/activate.json"
 	TwitterAPISearch         = "https://api.twitter.com/2/search/adaptive.json"
+	TwitterAPITrends         = "https://twitter.com/i/api/2/guide.json"
 	TwitterAPIUserScreenName = "https://twitter.com/i/api/graphql/7mjxD3-C6BxitPMVQ6w0-Q/UserByScreenName"
 	TwitterAPIUserTweets     = "https://twitter.com/i/api/graphql/BSKxQ9_IaCoVyIvQHQROIQ/UserTweetsAndReplies"
 )
@@ -60,6 +61,10 @@ type TwitterScraper struct {
 	//guestToken string
 	query        string
 	tokenManager *utils.GuestTokenManager
+	ensureToken  struct {
+		baseUrl string
+		params  string
+	}
 }
 
 func NewTwitterScraper(conf *Config) *TwitterScraper {
@@ -160,13 +165,7 @@ func (c *TwitterScraper) ensureGuestToken(baseUrl string) error {
 func (c *TwitterScraper) get_api_data(endpoint string, params url.Values, apiType VersionAPI) (twitterResponse, error) {
 	var paramsEncode string
 	if apiType == APIStandart {
-		param := url.Values{}
-		param.Add("q", c.query)
-		param.Add("f", "live")
-		param.Add("lang", "en")
-		param.Add("src", "spelling_expansion_revert_click")
-		apiBase := "https://twitter.com/search?"
-		if err := c.ensureGuestToken(apiBase + param.Encode()); err != nil {
+		if err := c.ensureGuestToken(c.ensureToken.baseUrl + c.ensureToken.params); err != nil {
 			return twitterResponse{}, err
 		}
 		paramsEncode = params.Encode()
@@ -186,11 +185,8 @@ func (c *TwitterScraper) get_api_data(endpoint string, params url.Values, apiTyp
 	defer resp.Body.Close()
 
 	var tweetResult twitterResponse
-	err = json.NewDecoder(resp.Body).Decode(&tweetResult)
-	if _, ok := err.(*json.SyntaxError); ok {
-		return twitterResponse{}, errors.New("received invalid JSON from Twitter")
-	} else if err != nil {
-		return twitterResponse{}, fmt.Errorf("json.Decode: %v", err)
+	if err := decodeResponse(resp.Body, &tweetResult); err != nil {
+		return twitterResponse{}, err
 	}
 
 	return tweetResult, nil
@@ -380,6 +376,15 @@ func (c *TwitterScraper) TweetSearch(ctx context.Context, query string, maxTweet
 	params := paginationParams
 	params.Del("cursor")
 
+	// make ensure token
+	param := url.Values{}
+	param.Add("q", c.query)
+	param.Add("f", "live")
+	param.Add("lang", "en")
+	param.Add("src", "spelling_expansion_revert_click")
+	c.ensureToken.baseUrl = "https://twitter.com/search?"
+	c.ensureToken.params = params.Encode()
+
 	go c.iteratorApiData(ctx, TwitterAPISearch+"?", params, paginationParams, "", maxTweets, APIStandart, channel, parseTimeline)
 	return channel
 }
@@ -395,6 +400,15 @@ func (c *TwitterScraper) TweetHastag(ctx context.Context, hashtag string, maxTwe
 	// copy value
 	params := paginationParams
 	params.Del("cursor")
+
+	// make ensure token
+	param := url.Values{}
+	param.Add("q", c.query)
+	param.Add("f", "live")
+	param.Add("lang", "en")
+	param.Add("src", "spelling_expansion_revert_click")
+	c.ensureToken.baseUrl = "https://twitter.com/search?"
+	c.ensureToken.params = params.Encode()
 
 	go c.iteratorApiData(ctx, TwitterAPISearch+"?", params, paginationParams, "", maxTweets, APIStandart, channel, parseTimeline)
 	return channel
@@ -448,6 +462,31 @@ func (c *TwitterScraper) TweetUser(ctx context.Context, username string, maxTwee
 
 	go c.iteratorApiData(ctx, TwitterAPIUserTweets+"?", variables, paginationVariables, "", maxTweets, APIGraphql, channel, parseTimelineV2)
 	return channel
+}
+
+func (c *TwitterScraper) TweetTrends(ctx context.Context) ([]*entities.TwitterTrend, error) {
+	_, paginationParams := c.params("")
+	paginationParams.Del("cursor")
+	paginationParams.Del("tweet_search_mode")
+	paginationParams.Del("query_source")
+	paginationParams.Del("pc")
+	paginationParams.Del("spelling_corrections")
+	paginationParams.Set("count", "20")
+	paginationParams.Add("candidate_source", "trends")
+	paginationParams.Add("include_page_configuration", "dalse")
+	paginationParams.Add("entity_tokens", "false")
+	paginationParams.Set("ext", "mediaStats,highlightedLabel,voiceInfo")
+
+	// make ensure token
+	c.ensureToken.baseUrl = "https://twitter.com/i/trends"
+	c.ensureToken.params = ""
+
+	response, err := c.get_api_data(TwitterAPITrends+"?", paginationParams, APIStandart)
+	if err != nil {
+		return nil, err
+	}
+
+	return parseTrends(response), nil
 }
 
 func (c *TwitterScraper) params(query string) (string, url.Values) {

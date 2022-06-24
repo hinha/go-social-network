@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -544,6 +545,42 @@ func parseTimelineV2(timeline twitterResponse, gotPinned *bool, dateRange DateRa
 	return tweets
 }
 
+func parseTrends(timeline twitterResponse) []*entities.TwitterTrend {
+	var trends []*entities.TwitterTrend
+	urlEncode := url.Values{}
+	for _, instruction := range timeline.Timeline.Instructions {
+		entries := checkEntries(instruction)
+		if entries == nil {
+			continue
+		}
+
+		for _, obj := range entries {
+			entry := utils.Dict(obj)
+			if entry.M("entryId").String() != "trends" {
+				continue
+			}
+
+			for _, item := range entry.M("content").M("timelineModule").M("items").Slice() {
+				trend := utils.Dict(item).M("item").M("content").M("trend")
+				trendName := trend.M("name").String()
+				urlEncode.Set("q", trendName)
+
+				var metaDescription string
+				if meta, ok := trend.M("trendMetadata").Exists("metaDescription"); ok {
+					metaDescription = meta.String()
+				}
+				trends = append(trends, &entities.TwitterTrend{
+					Name:            trendName,
+					MetaDescription: metaDescription,
+					DomainContext:   trend.M("trendMetadata").M("domainContext").String(),
+					Url:             fmt.Sprintf("https://twitter.com/search?%s", urlEncode.Encode()),
+				})
+			}
+		}
+	}
+
+	return trends
+}
 func inTimeSpan(start, end, check time.Time) bool {
 	return check.After(start) && check.Before(end)
 }
