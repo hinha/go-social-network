@@ -1,7 +1,10 @@
 package sns
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -32,4 +35,15 @@ func (c *TwitterScraper) CheckTokenResponse(r *http.Response) (bool, string) {
 		return false, "non-200 response"
 	}
 	return true, ""
+}
+
+func decodeResponse(body io.ReadCloser, target interface{}) error {
+	err := json.NewDecoder(body).Decode(target)
+	if _, ok := err.(*json.SyntaxError); ok {
+		return errors.New("received invalid JSON from Twitter")
+	} else if err != nil {
+		return fmt.Errorf("json.Decode: %v", err)
+	}
+
+	return nil
 }

@@ -134,3 +134,10 @@ type TwitterUser struct {
 	} `json:"label"`
 	Url string `json:"url"`
 }
+
+type TwitterTrend struct {
+	Name            string `json:"name"`
+	DomainContext   string `json:"domain_context"`
+	MetaDescription string `json:"meta_description"`
+	Url             string `json:"url"`
+}
